@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <ignition/physics/RequestFeatures.hh>
 
 #include <ignition/gazebo/config.hh>
@@ -74,8 +75,7 @@ namespace systems
   /// \tparam ToEntity Type of entities with ToFeatureList
   /// \tparam MinimumEntity Type of entities with MinimumFeatureList
   /// \param[in] _entity Entity ID.
-  /// \param[in] _minimumMap Map with all entities of the given type, having
-  /// minimum features.
+  /// \param[in] _minimumEntity Entity pointer with minimum features.
   /// \param[in] _castMap Map to store entities that have already been cast.
   template <
       typename PolicyT,
@@ -83,9 +83,10 @@ namespace systems
       typename MinimumFeatureList,
       template <typename, typename> class ToEntity,
       template <typename, typename> class MinimumEntity>
-  physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> entityCast(Entity _entity,
-      std::unordered_map<Entity, physics::EntityPtr<
-        MinimumEntity<PolicyT, MinimumFeatureList>>> &_minimumMap,
+  physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> entityCast(
+      Entity _entity,
+      const physics::EntityPtr<MinimumEntity<PolicyT, MinimumFeatureList>>
+        &_minimumEntity,
       std::unordered_map<Entity, physics::EntityPtr<
         ToEntity<PolicyT, ToFeatureList>>> &_castMap)
   {
@@ -98,18 +99,9 @@ namespace systems
 
     physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> castEntity;
 
-    // Get from minimum map
-    auto minimumIt = _minimumMap.find(_entity);
-    if (minimumIt == _minimumMap.end())
-    {
-      ignwarn << "Failed to find entity [" << _entity << "] in minimum map."
-              << std::endl;
-      return castEntity;
-    }
-
     // Cast
     castEntity =
-        physics::RequestFeatures<ToFeatureList>::From(minimumIt->second);
+        physics::RequestFeatures<ToFeatureList>::From(_minimumEntity);
 
     if (!castEntity)
     {

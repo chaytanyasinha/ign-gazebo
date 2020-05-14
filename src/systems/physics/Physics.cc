@@ -390,12 +390,12 @@ class ignition::gazebo::systems::PhysicsPrivate
   // Joint velocity command
 
   /// \brief Feature list for set joint velocity command.
-  public: using JointVelocityCommandFeatureList = ignition::physics::FeatureList<
-            ignition::physics::SetJointVelocityCommandFeature>;
+  public: using JointVelocityCommandFeatureList = physics::FeatureList<
+            physics::SetJointVelocityCommandFeature>;
 
   /// \brief Joint type with set joint velocity command.
-  public: using JointVelocityCommandPtrType = ignition::physics::JointPtr<
-            ignition::physics::FeaturePolicy3d, JointVelocityCommandFeatureList>;
+  public: using JointVelocityCommandPtrType = physics::JointPtr<
+            physics::FeaturePolicy3d, JointVelocityCommandFeatureList>;
 
   /// \brief A map between joint entity ids in the ECM to Joint Entities in
   /// ign-physics, with velocity command feature.
@@ -410,13 +410,13 @@ class ignition::gazebo::systems::PhysicsPrivate
   /// \brief Feature list for meshes.
   /// Include MinimumFeatureList so created collision can be automatically
   /// up-cast.
-  public: using MeshFeatureList = ignition::physics::FeatureList<
+  public: using MeshFeatureList = physics::FeatureList<
             CollisionFeatureList,
-            ignition::physics::mesh::AttachMeshShapeFeature>;
+            physics::mesh::AttachMeshShapeFeature>;
 
   /// \brief Link type with meshes.
-  public: using LinkMeshPtrType = ignition::physics::LinkPtr<
-            ignition::physics::FeaturePolicy3d, MeshFeatureList>;
+  public: using LinkMeshPtrType = physics::LinkPtr<
+            physics::FeaturePolicy3d, MeshFeatureList>;
 
   /// \brief A map between link entity ids in the ECM to Link Entities in
   /// ign-physics, with mesh feature.
@@ -627,7 +627,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
 
         // Check if parent world exists
         // TODO(louise): Support nested models, see
-        // https://bitbucket.org/ignitionrobotics/ign-physics/issues/10
+        // https://github.com/ignitionrobotics/ign-physics/issues/10
         if (this->entityWorldMap.find(_parent->Data())
             == this->entityWorldMap.end())
         {
@@ -767,7 +767,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
             return true;
           }
 
-          auto linkMeshFeature = entityCast(_parent->Data(), this->entityLinkMap,
+          auto linkMeshFeature = entityCast(_parent->Data(), linkPtrPhys,
               this->entityLinkMeshMap);
           if (!linkMeshFeature)
           {
@@ -782,7 +782,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         }
         else
         {
-          auto linkCollisionFeature = entityCast(_parent->Data(), this->entityLinkMap,
+          auto linkCollisionFeature = entityCast(_parent->Data(), linkPtrPhys,
               this->entityLinkCollisionMap);
           if (!linkCollisionFeature)
           {
@@ -836,7 +836,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         }
         auto modelPtrPhys = this->entityModelMap.at(_parentModel->Data());
 
-        auto modelJointFeature = entityCast(modelPtrPhys, this->entityModelMap,
+        auto modelJointFeature = entityCast(_parentModel->Data(), modelPtrPhys,
             this->entityModelJointMap);
         if (!modelJointFeature)
         {
@@ -917,14 +917,26 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
           return true;
         }
 
-        auto childLinkDetachableJointFeature = entityCast(
-            _jointInfo->Data().childLink, this->entityLinkMap,
-            this->entityLinkDetachableJointMap);
+        auto childLinkEntity = _jointInfo->Data().childLink;
+
+        // Get child link
+        auto childLinkIt = this->entityLinkMap.find(childLinkEntity);
+        if (childLinkIt == this->entityLinkMap.end())
+        {
+          ignwarn << "Failed to find joint's child link [" << childLinkEntity
+                  << "]." << std::endl;
+          return true;
+        }
+
+        auto childLinkDetachableJointFeature = entityCast(childLinkEntity,
+            childLinkIt->second, this->entityLinkDetachableJointMap);
         if (!childLinkDetachableJointFeature)
         {
           ignwarn << "Can't process DetachableJoint component, physics engine "
                   << "missing AttachFixedJointFeature" << std::endl;
-          return true;
+
+          // Break Each call since no DetachableJoints can be processed
+          return false;
         }
 
         const auto poseParent =
@@ -1011,13 +1023,23 @@ void PhysicsPrivate::RemovePhysicsEntities(const EntityComponentManager &_ecm)
   _ecm.EachRemoved<components::DetachableJoint>(
       [&](const Entity &_entity, const components::DetachableJoint *) -> bool
       {
-        auto castEntity = entityCast(_entity, this->entityJointMap,
+        auto jointIt = this->entityJointMap.find(_entity);
+        if (jointIt == this->entityJointMap.end())
+        {
+          ignwarn << "Failed to find joint [" << _entity
+                  << "]." << std::endl;
+          return true;
+        }
+
+        auto castEntity = entityCast(_entity, jointIt->second,
             this->entityJointDetachableJointMap);
         if (!castEntity)
         {
           ignwarn << "Can't process DetachableJoint component, physics engine "
                   << "missing DetachJointFeature" << std::endl;
-          return true;
+
+          // Break Each call since no DetachableJoints can be processed
+          return false;
         }
 
         igndbg << "Detaching joint [" << _entity << "]" << std::endl;
@@ -1060,7 +1082,7 @@ void PhysicsPrivate::UpdatePhysics(EntityComponentManager &_ecm)
 
             // TODO(anyone): Only for diff drive, which does not use
             //   JointForceCmd. Remove when it does.
-            auto jointVelFeature = entityCast(_entity, this->entityJointMap,
+            auto jointVelFeature = entityCast(_entity, jointIt->second,
                 this->entityJointVelocityCommandMap);
             if (jointVelFeature)
             {
@@ -1170,7 +1192,7 @@ void PhysicsPrivate::UpdatePhysics(EntityComponentManager &_ecm)
                     << velocityCmd.size() << ".\n";
           }
 
-          auto jointVelFeature = entityCast(_entity, this->entityJointMap,
+          auto jointVelFeature = entityCast(_entity, jointIt->second,
               this->entityJointVelocityCommandMap);
           if (!jointVelFeature)
           {
@@ -1195,7 +1217,15 @@ void PhysicsPrivate::UpdatePhysics(EntityComponentManager &_ecm)
       [&](const Entity &_entity,
           const components::ExternalWorldWrenchCmd *_wrenchComp)
       {
-        auto linkForceFeature = entityCast(_entity, this->entityLinkMap,
+        auto linkIt = this->entityLinkMap.find(_entity);
+        if (linkIt == this->entityLinkMap.end())
+        {
+          ignwarn << "Failed to find link [" << _entity
+                  << "]." << std::endl;
+          return true;
+        }
+
+        auto linkForceFeature = entityCast(_entity, linkIt->second,
             this->entityLinkForceMap);
         if (!linkForceFeature)
         {
@@ -1284,13 +1314,22 @@ void PhysicsPrivate::UpdatePhysics(EntityComponentManager &_ecm)
       [&](const Entity &_entity, const components::Model *,
           components::AxisAlignedBox *_bbox)
       {
-        auto bbModel = entityCast(_entity,
-            this->entityModelMap, this->entityModelBoundingBoxMap);
+        auto modelIt = this->entityModelMap.find(_entity);
+        if (modelIt == this->entityModelMap.end())
+        {
+          ignwarn << "Failed to find model [" << _entity << "]." << std::endl;
+          return true;
+        }
+
+        auto bbModel = entityCast(_entity, modelIt->second,
+            this->entityModelBoundingBoxMap);
         if (!bbModel)
         {
           ignwarn << "Can't process AxisAlignedBox component, physics engine "
                   << "missing GetModelBoundingBox" << std::endl;
-          return true;
+
+          // Break Each call since no AxisAlignedBox'es can be processed
+          return false;
         }
 
         math::AxisAlignedBox bbox =
@@ -1738,7 +1777,14 @@ void PhysicsPrivate::UpdateCollisions(EntityComponentManager &_ecm)
     return;
   }
 
-  auto worldCollisionFeature = entityCast(worldEntity, this->entityWorldMap,
+  auto worldIt = this->entityWorldMap.find(worldEntity);
+  if (worldIt == this->entityWorldMap.end())
+  {
+    ignwarn << "Failed to find world [" << worldEntity << "]." << std::endl;
+    return;
+  }
+
+  auto worldCollisionFeature = entityCast(worldEntity, worldIt->second,
       this->entityWorldCollisionMap);
   if (!worldCollisionFeature)
   {
